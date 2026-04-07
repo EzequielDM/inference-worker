@@ -8,7 +8,7 @@ WORKDIR /llama.cpp
 
 # Target the specific architectures for AMPERE_48 (86) and ADA_32_PRO (89)
 RUN mkdir build && cd build && \
-    cmake .. -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90" && \
+    cmake .. -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90;100;120" && \
     cmake --build . --config Release -j $(nproc)
 
 # --- STAGE 2: The actual RunPod Runtime ---
