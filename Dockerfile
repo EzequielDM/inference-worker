@@ -1,39 +1,31 @@
-# Use an official ggml-org/llama.cpp image as the base image
-FROM ghcr.io/ggml-org/llama.cpp:server-cuda
+# --- STAGE 1: Compile your custom fork ---
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS builder
+RUN apt-get update && apt-get install -y git build-essential cmake
 
-ENV PYTHONUNBUFFERED=1
+# Pull your modified repository
+RUN git clone https://github.com/EzequielDM/llama.cpp-bad /llama.cpp
+WORKDIR /llama.cpp
 
-# Set up the working directory
-WORKDIR /
+# Compile the server binary with CUDA support
+RUN mkdir build && cd build && \
+    cmake .. -DGGML_CUDA=ON \
+             -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90" && \
+    cmake --build . --config Release -j $(nproc)
 
-RUN apt-get update --yes --quiet && DEBIAN_FRONTEND=noninteractive apt-get install --yes --quiet --no-install-recommends \
-    software-properties-common \
-    gpg-agent \
-    build-essential apt-utils \
-    && apt-get install --reinstall ca-certificates \
-    && add-apt-repository --yes ppa:deadsnakes/ppa && apt update --yes --quiet \
-    && DEBIAN_FRONTEND=noninteractive apt-get install --yes --quiet --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
-    python3.11-lib2to3 \
-    python3.11-gdbm \
-    python3.11-tk \
-    bash \
-    curl && \
-    ln -s /usr/bin/python3.11 /usr/bin/python && \
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# --- STAGE 2: Set up the inference-worker environment ---
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Set the working directory
-WORKDIR /work
+# Install Python and the dependencies required by the worker repo
+RUN apt-get update && apt-get install -y python3 python3-pip
+COPY requirements.txt .
+RUN pip3 install -r requirements.txt
 
-# Add ./src as /work
-ADD ./src /work
+# --- STAGE 3: Inject the custom binary ---
+# This overwrites the default server with your reverse-engineered/modified version
+COPY --from=builder /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
 
-# Install runpod and its dependencies
-RUN pip install -r ./requirements.txt && chmod +x /work/start.sh
+# Copy the inference-worker handler code into the container
+COPY src /src
 
-# Set the entrypoint
-ENTRYPOINT ["/bin/sh", "-c", "/work/start.sh"]
+# Start the RunPod handler
+CMD ["python3", "-u", "/src/handler.py"]
