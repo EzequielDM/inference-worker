@@ -1,34 +1,43 @@
-# --- STAGE 1: Compile your custom fork ---
+# --- STAGE 1: Build your custom llama.cpp ---
 FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS builder
+
 RUN apt-get update && apt-get install -y git build-essential cmake
 
-# Pull your modified repository
 RUN git clone https://github.com/EzequielDM/llama.cpp-bad /llama.cpp
 WORKDIR /llama.cpp
 
-# Compile the server binary with CUDA support
+# Target the specific architectures for AMPERE_48 (86) and ADA_32_PRO (89)
 RUN mkdir build && cd build && \
-    cmake .. -DGGML_CUDA=ON \
-             -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90" && \
+    cmake .. -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90" && \
     cmake --build . --config Release -j $(nproc)
 
-# --- STAGE 2: Set up the inference-worker environment ---
+# --- STAGE 2: The actual RunPod Runtime ---
+# We use the runtime image to keep it lean
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# --- STAGE 3: Inject the custom binary ---
-# This overwrites the default server with your reverse-engineered/modified version
+ENV PYTHONUNBUFFERED=1
+
+# Replicating the project's specific python3.11 setup
+RUN apt-get update --yes --quiet && DEBIAN_FRONTEND=noninteractive apt-get install --yes --quiet --no-install-recommends \
+    software-properties-common gpg-agent build-essential apt-utils ca-certificates curl git && \
+    add-apt-repository --yes ppa:deadsnakes/ppa && apt update --yes --quiet && \
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes --quiet --no-install-recommends \
+    python3.11 python3.11-dev python3.11-distutils bash && \
+    ln -s /usr/bin/python3.11 /usr/bin/python && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Inject your custom binary into the standard path
 COPY --from=builder /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
 
-# Set the working directory to something neutral
-WORKDIR /app
+# Match the project's folder logic
+WORKDIR /work
 
-# Copy the local 'src' folder INTO a folder named 'src' in the container
-COPY src /src
+# ADDing ./src to /work. 
+# This works if your requirements.txt is inside the 'src' folder.
+ADD ./src /work
 
-# Install Python and the dependencies required by the worker repo
-RUN apt-get update && apt-get install -y python3 python3-pip
-COPY requirements.txt .
-RUN pip3 install -r requirements.txt
+# Install dependencies from the now-moved requirements file
+RUN pip install -r ./requirements.txt && chmod +x /work/start.sh
 
-# Update your CMD to point to the correct absolute path
-CMD ["python3", "-u", "/src/handler.py"]
+ENTRYPOINT ["/bin/sh", "-c", "/work/start.sh"]
