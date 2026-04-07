@@ -1,5 +1,5 @@
 # --- STAGE 1: Build your custom llama.cpp ---
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:13.0.0-devel-ubuntu22.04 AS builder
 
 RUN apt-get update && apt-get install -y git build-essential cmake
 
