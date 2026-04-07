@@ -13,7 +13,7 @@ RUN mkdir build && cd build && \
 
 # --- STAGE 2: The actual RunPod Runtime ---
 # We use the runtime image to keep it lean
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:13.0.0-runtime-ubuntu22.04
 
 ENV PYTHONUNBUFFERED=1
 
